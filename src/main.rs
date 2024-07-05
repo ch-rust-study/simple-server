@@ -1,4 +1,6 @@
 use axum::{extract::Path, http::StatusCode, routing::get, Json, Router};
+use sqlx::postgres::PgPoolOptions;
+
 /**
  * TODO1 @andrew
  * get mock member list
@@ -16,8 +18,20 @@ use axum::{extract::Path, http::StatusCode, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), sqlx::Error> {
     tracing_subscriber::fmt::init();
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://mb-188:password@localhost/mydb")
+        .await?;
+
+    let row: (i32, String) = sqlx::query_as("SELECT * from \"USER\"")
+        // .bind(150_i32)
+        .fetch_one(&pool)
+        .await?;
+
+    println!("{:?}", row);
 
     let app: axum::Router = Router::new()
         .route("/users", get(get_users))
@@ -27,6 +41,8 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
+
+    Ok(())
 }
 
 async fn get_users() -> (StatusCode, Json<Vec<User>>) {
