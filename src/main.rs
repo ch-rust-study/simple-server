@@ -1,5 +1,10 @@
-use axum::{extract::Path, http::StatusCode, routing::get, Json, Router};
-use sqlx::postgres::PgPoolOptions;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
+use sqlx::{postgres::PgPoolOptions, PgPool, Pool, Postgres};
 
 /**
  * TODO1 @andrew
@@ -26,18 +31,12 @@ async fn main() -> Result<(), sqlx::Error> {
         .connect("postgres://mb-188:password@localhost/mydb")
         .await?;
 
-    let row: (i32, String) = sqlx::query_as("SELECT * from \"USER\"")
-        // .bind(150_i32)
-        .fetch_one(&pool)
-        .await?;
-
-    println!("{:?}", row);
-
     let app: axum::Router = Router::new()
         .route("/users", get(get_users))
         .route("/users/:id", get(get_user))
         .route("/posts", get(get_posts))
-        .route("/posts/:id", get(get_post));
+        .route("/posts/:id", get(get_post))
+        .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -45,25 +44,33 @@ async fn main() -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-async fn get_users() -> (StatusCode, Json<Vec<User>>) {
-    let users: Vec<User> = vec![
-        User {
-            id: 1,
-            name: "a".to_string(),
-        },
-        User {
-            id: 2,
-            name: "b".to_string(),
-        },
-    ];
+async fn get_users(State(pool): State<PgPool>) -> (StatusCode, Json<Vec<User>>) {
+    let rows: Vec<(i32, String)> = sqlx::query_as("SELECT * from \"USER\"")
+        .fetch_all(&pool)
+        .await
+        .expect("error");
+
+    let users = rows
+        .iter()
+        .map(|r| User {
+            id: r.0,
+            name: r.1.to_string(),
+        })
+        .collect();
 
     (StatusCode::OK, Json(users))
 }
 
-async fn get_user(Path(id): Path<u64>) -> (StatusCode, Json<User>) {
+async fn get_user(State(pool): State<PgPool>, Path(id): Path<i32>) -> (StatusCode, Json<User>) {
+    let row: (i32, String) = sqlx::query_as("SELECT * from \"USER\" WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .expect("error");
+
     let user = User {
-        id,
-        name: "tigger".to_string(),
+        id: row.0,
+        name: row.1.to_string(),
     };
 
     (StatusCode::OK, Json(user))
@@ -97,7 +104,7 @@ async fn get_post(Path(id): Path<u64>) -> (StatusCode, Json<Post>) {
 
 #[derive(Serialize)]
 struct User {
-    id: u64,
+    id: i32,
     name: String,
 }
 
